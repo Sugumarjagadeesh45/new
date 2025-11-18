@@ -119,7 +119,8 @@ const WelcomeScreen3 = () => {
     [isValidPhoneNumber]
   );
 
- const verifyOTP = useCallback(async () => {
+
+  const verifyOTP = useCallback(async () => {
   if (!code) {
     Alert.alert('Error', 'Please enter the OTP.');
     return;
@@ -128,57 +129,64 @@ const WelcomeScreen3 = () => {
     Alert.alert('Error', 'No OTP session found. Please request a new OTP.');
     return;
   }
+  
   try {
     setLoading(true);
     
     // Verify OTP with Firebase
     await confirmRef.current.confirm(code);
-    
-    // Store phone number
     await AsyncStorage.setItem('phoneNumber', mobileNumber);
     
-    // Try to verify with backend
+    // Clear any previous tokens to avoid conflicts
+    await AsyncStorage.multiRemove(['authToken', 'tempAuthToken', 'isRegistered']);
+    
     try {
       const response = await callBackend('/verify-phone', { phoneNumber: mobileNumber });
       
-      if (response.data.success && response.data.token) {
-        // Existing user - store proper token
-        await AsyncStorage.setItem('authToken', response.data.token);
-        await AsyncStorage.setItem('isRegistered', 'true');
-        await AsyncStorage.removeItem('verificationId');
-        
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Screen1' }],
-        });
-      } else if (response.data.success && response.data.newUser) {
-        // New user - store temporary token differently
-        await AsyncStorage.setItem('tempAuthToken', response.data.tempToken || 'temp');
-        await AsyncStorage.setItem('isRegistered', 'false'); // Mark as unregistered
-        
-        navigation.reset({
-          index: 0,
-          routes: [{ 
-            name: 'Screen1', 
-            params: { 
-              isNewUser: true, 
-              phone: mobileNumber,
-              needsRegistration: true 
-            } 
-          }],
-        });
+      if (response.data.success) {
+        if (response.data.token && !response.data.newUser) {
+          // Existing user
+          await AsyncStorage.multiSet([
+            ['authToken', response.data.token],
+            ['isRegistered', 'true']
+          ]);
+          await AsyncStorage.removeItem('verificationId');
+          
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Screen1' }],
+          });
+        } else if (response.data.newUser) {
+          // New user - use consistent token storage
+          await AsyncStorage.multiSet([
+            ['tempAuthToken', response.data.tempToken || mobileNumber], // Use phone as fallback
+            ['isRegistered', 'false']
+          ]);
+          
+          navigation.reset({
+            index: 0,
+            routes: [{ 
+              name: 'Screen1', 
+              params: { 
+                phone: mobileNumber,
+                needsRegistration: true 
+              } 
+            }],
+          });
+        }
       }
     } catch (backendError: any) {
-      // If backend is down, proceed as new user with clear flags
-      console.warn('Backend unavailable, proceeding as new user:', backendError);
-      await AsyncStorage.setItem('tempAuthToken', 'temp-token');
-      await AsyncStorage.setItem('isRegistered', 'false');
+      console.warn('Backend unavailable, proceeding as new user');
+      await AsyncStorage.multiSet([
+        ['tempAuthToken', mobileNumber], // Use phone as token
+        ['isRegistered', 'false']
+      ]);
+      
       navigation.reset({
         index: 0,
         routes: [{ 
           name: 'Screen1', 
           params: { 
-            isNewUser: true, 
             phone: mobileNumber,
             needsRegistration: true 
           } 
@@ -191,6 +199,7 @@ const WelcomeScreen3 = () => {
     setLoading(false);
   }
 }, [code, mobileNumber, navigation]);
+
 
   return (
     <LinearGradient
