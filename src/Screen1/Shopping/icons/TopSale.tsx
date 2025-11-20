@@ -1,30 +1,19 @@
 import React, { useState, useEffect, useContext } from 'react';
-import { View, Text, StyleSheet, FlatList, RefreshControl , TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import ProductCard from '../ProductCard';
 import { CartContext } from '../ShoppingContent';
-
-type Product = {
-  _id: string;
-  name: string;
-  description: string;
-  price: number;
-  originalPrice: number;
-  discount: number;
-  category: string;
-  images: string[];
-  createdAt: string;
-};
-
-const BASE_URL = 'https://goodbackend.onrender.com';
+import { getApiBaseUrl } from '../../../../src/util/backendConfig';
 
 const TopSale = () => {
   const navigation = useNavigation();
   const { addToCart } = useContext(CartContext);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const BASE_URL = getApiBaseUrl();
 
   useEffect(() => {
     fetchTopSaleProducts();
@@ -33,19 +22,18 @@ const TopSale = () => {
   const fetchTopSaleProducts = async () => {
     try {
       setLoading(true);
-      // In a real app, this would be a specific endpoint for top sale products
-      const res = await axios.get(`${BASE_URL}/api/groceries`);
-      const fetchedProducts = res.data.map((p: any) => ({
-        ...p,
-        createdAt: new Date(p.createdAt),
-      }));
+      const response = await axios.get(`${BASE_URL}/groceries`);
       
-      // Filter for products with high discount (admin controlled)
-      const topSaleProducts = fetchedProducts
-        .filter((p: Product) => p.discount > 10)
-        .sort((a: Product, b: Product) => b.discount - a.discount);
-      
-      setProducts(topSaleProducts);
+      if (response.data.success) {
+        const allProducts = response.data.data || [];
+        
+        // Filter for products with high discount (top sale items)
+        const topSaleProducts = allProducts
+          .filter(product => product.discount >= 20)
+          .sort((a, b) => b.discount - a.discount);
+        
+        setProducts(topSaleProducts);
+      }
     } catch (err) {
       console.error('Error fetching top sale products:', err);
     } finally {
@@ -59,17 +47,27 @@ const TopSale = () => {
     setRefreshing(false);
   };
 
+  const handleAddToCart = (product) => {
+    if (product.stock <= 0) {
+      alert('This product is out of stock');
+      return;
+    }
+    addToCart(product);
+    alert(`${product.name} added to cart`);
+  };
+
   if (loading && !refreshing) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-            <Text style={styles.backButtonText}>Back</Text>
+            <Text style={styles.backButtonText}>← Back</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Top Sale</Text>
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#4caf50" />
           <Text style={styles.loadingText}>Loading top deals...</Text>
         </View>
       </View>
@@ -80,7 +78,7 @@ const TopSale = () => {
     <View style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>Back</Text>
+          <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Top Sale</Text>
         <View style={styles.placeholder} />
@@ -88,12 +86,17 @@ const TopSale = () => {
 
       {products.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No top deals available at the moment</Text>
+          <Text style={styles.emptyTitle}>No Top Deals Available</Text>
+          <Text style={styles.emptyText}>
+            Check back later for amazing discounts and special offers!
+          </Text>
         </View>
       ) : (
         <FlatList
           data={products}
-          renderItem={({ item }) => <ProductCard product={item} addToCart={addToCart} />}
+          renderItem={({ item }) => (
+            <ProductCard product={item} addToCart={handleAddToCart} />
+          )}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.productsList}
           showsVerticalScrollIndicator={false}
@@ -109,7 +112,7 @@ const TopSale = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f9fa',
   },
   header: {
     flexDirection: 'row',
@@ -117,24 +120,30 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 15,
     paddingVertical: 15,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#e0e0e0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   backButton: {
-    padding: 5,
+    padding: 8,
   },
   backButtonText: {
     fontSize: 16,
     color: '#4caf50',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: '#333',
   },
   placeholder: {
-    width: 50,
+    width: 60,
   },
   loadingContainer: {
     flex: 1,
@@ -142,6 +151,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
+    marginTop: 10,
     fontSize: 16,
     color: '#666',
   },
@@ -151,10 +161,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 30,
   },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#666',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
   emptyText: {
     fontSize: 16,
-    color: '#666',
+    color: '#999',
     textAlign: 'center',
+    lineHeight: 22,
   },
   productsList: {
     padding: 15,

@@ -143,26 +143,38 @@ const WelcomeScreen3 = () => {
     try {
       const response = await callBackend('/verify-phone', { phoneNumber: mobileNumber });
       
+      console.log('📋 Verify phone response:', response.data);
+      
       if (response.data.success) {
         if (response.data.token && !response.data.newUser) {
-          // Existing user
+          // Existing user - store auth token and registration status
           await AsyncStorage.multiSet([
             ['authToken', response.data.token],
-            ['isRegistered', 'true']
+            ['isRegistered', 'true'],
+            ['phoneNumber', mobileNumber]
           ]);
           await AsyncStorage.removeItem('verificationId');
           
+          // Navigate to Screen1 with a flag indicating user is registered
           navigation.reset({
             index: 0,
-            routes: [{ name: 'Screen1' }],
+            routes: [{ 
+              name: 'Screen1',
+              params: { 
+                phone: mobileNumber,
+                isRegistered: true
+              } 
+            }],
           });
         } else if (response.data.newUser) {
-          // New user - use consistent token storage
+          // New user - store temp token and registration status
           await AsyncStorage.multiSet([
-            ['tempAuthToken', response.data.tempToken || mobileNumber], // Use phone as fallback
-            ['isRegistered', 'false']
+            ['tempAuthToken', response.data.tempToken || mobileNumber],
+            ['isRegistered', 'false'],
+            ['phoneNumber', mobileNumber]
           ]);
           
+          // Navigate to Screen1 with a flag indicating user needs registration
           navigation.reset({
             index: 0,
             routes: [{ 
@@ -178,8 +190,9 @@ const WelcomeScreen3 = () => {
     } catch (backendError: any) {
       console.warn('Backend unavailable, proceeding as new user');
       await AsyncStorage.multiSet([
-        ['tempAuthToken', mobileNumber], // Use phone as token
-        ['isRegistered', 'false']
+        ['tempAuthToken', mobileNumber],
+        ['isRegistered', 'false'],
+        ['phoneNumber', mobileNumber]
       ]);
       
       navigation.reset({
@@ -199,6 +212,7 @@ const WelcomeScreen3 = () => {
     setLoading(false);
   }
 }, [code, mobileNumber, navigation]);
+
 
 
   return (

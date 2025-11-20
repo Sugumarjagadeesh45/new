@@ -118,8 +118,8 @@ export default function Screen1() {
     return {
       register: `${baseUrl}/api/auth/register`,
       profile: `${baseUrl}/api/users/profile`,
-      me: `${baseUrl}/api/users/me`,
-      meProfile: `${baseUrl}/api/users/me/profile`,
+      me: `${baseUrl}/api/users/profile`,
+      meProfile: `${baseUrl}/api/users/profile`,
       location: `${baseUrl}/api/users/location`,
       logout: `${baseUrl}/api/auth/logout`,
       verifyPhone: `${baseUrl}/api/auth/verify-phone`,
@@ -155,10 +155,64 @@ export default function Screen1() {
     setLoadingUserData(true);
     const urls = getBackendUrls();
     
-    // ✅ SINGLE SOURCE OF TRUTH for registration status
+    // Get registration status from storage
     const phoneNumber = await AsyncStorage.getItem('phoneNumber');
     const tempToken = await AsyncStorage.getItem('tempAuthToken');
     const authToken = await AsyncStorage.getItem('authToken');
+    const isRegistered = await AsyncStorage.getItem('isRegistered');
+    
+    console.log('🔐 Auth state:', { 
+      phoneNumber, 
+      hasTempToken: !!tempToken, 
+      hasAuthToken: !!authToken, 
+      isRegistered 
+    });
+    
+    // Check if we have explicit parameters from navigation
+    const isRegisteredParam = route.params?.isRegistered;
+    const needsRegistrationParam = route.params?.needsRegistration;
+    
+    // If explicitly marked as registered, don't show registration modal
+    if (isRegisteredParam === true || isRegistered === 'true') {
+      if (authToken) {
+        try {
+          const response = await axios.get(urls.profile, {
+            headers: { Authorization: `Bearer ${authToken}` },
+            timeout: 10000,
+          });
+          
+          console.log('📋 Profile API Response:', response.data);
+          
+          // FIX: Properly extract user data from response
+          const userData = response.data.user || response.data;
+          const { name, phoneNumber, customerId, profilePicture } = userData;
+          
+          setUserData({ 
+            name: name || '', 
+            phoneNumber: phoneNumber || '', 
+            customerId: customerId || '', 
+            profilePicture: profilePicture || '' 
+          });
+          setName(name || '');
+          setPhoneNumber(phoneNumber || '');
+          setShowRegistrationModal(false);
+          
+          console.log('✅ Set user data:', { name, phoneNumber, customerId });
+        } catch (error) {
+          console.error('Error fetching profile:', error);
+          // Even if profile fetch fails, don't show registration modal for registered users
+          setShowRegistrationModal(false);
+        }
+      }
+      return;
+    }
+    
+    // If explicitly marked as needing registration, show registration modal
+    if (needsRegistrationParam === true || isRegistered === 'false') {
+      setShowRegistrationModal(true);
+      setPhoneNumber(phoneNumber || '');
+      return;
+    }
     
     // If we have temp token but no proper auth token, show registration
     if (tempToken && !authToken && !registrationCompleted) {
@@ -175,16 +229,34 @@ export default function Screen1() {
     
     // If we have proper auth token, fetch profile
     if (authToken) {
-      const response = await axios.get(urls.profile, {
-        headers: { Authorization: `Bearer ${authToken}` },
-        timeout: 10000,
-      });
-      
-      const { name, phoneNumber, customerId, profilePicture } = response.data;
-      setUserData({ name, phoneNumber, customerId, profilePicture });
-      setName(name || '');
-      setPhoneNumber(phoneNumber || '');
-      setShowRegistrationModal(false);
+      try {
+        const response = await axios.get(urls.profile, {
+          headers: { Authorization: `Bearer ${authToken}` },
+          timeout: 10000,
+        });
+        
+        console.log('📋 Profile API Response:', response.data);
+        
+        // FIX: Properly extract user data from response
+        const userData = response.data.user || response.data;
+        const { name, phoneNumber, customerId, profilePicture } = userData;
+        
+        setUserData({ 
+          name: name || '', 
+          phoneNumber: phoneNumber || '', 
+          customerId: customerId || '', 
+          profilePicture: profilePicture || '' 
+        });
+        setName(name || '');
+        setPhoneNumber(phoneNumber || '');
+        setShowRegistrationModal(false);
+        
+        console.log('✅ Set user data:', { name, phoneNumber, customerId });
+      } catch (error: any) {
+        console.error('Error fetching profile:', error);
+        // Don't automatically show registration modal on profile fetch error
+        // It might be a network issue, not a registration issue
+      }
     }
     
   } catch (error: any) {
@@ -197,7 +269,7 @@ export default function Screen1() {
   } finally {
     setLoadingUserData(false);
   }
-}, [navigation]);
+}, [navigation, route.params]);
 
 
 
@@ -229,6 +301,7 @@ useEffect(() => {
     setMenuVisible(false);
   };
 
+  
   const handleLogout = async () => {
     try {
       setMenuVisible(false);
@@ -265,6 +338,7 @@ useEffect(() => {
     }
   };
 
+ 
   const handleSubmitRegistration = async () => {
   if (!name || !address || !phoneNumber) {
     Alert.alert('Error', 'Name, address, and phone number are required');
@@ -284,18 +358,19 @@ useEffect(() => {
     });
     
     if (response.data.success && response.data.token) {
-      // ✅ CLEAN token transition
+      // Update registration status
       await AsyncStorage.multiSet([
         ['authToken', response.data.token],
         ['isRegistered', 'true'],
         ['name', name],
         ['address', address],
+        ['phoneNumber', phoneNumber]
       ]);
       
-      // ✅ CLEAR temp token completely
+      // Clear temp token
       await AsyncStorage.multiRemove(['tempAuthToken', 'verificationId']);
       
-      // ✅ Update state
+      // Update state
       setUserData(prev => ({
         ...prev,
         name: name,
@@ -308,7 +383,7 @@ useEffect(() => {
       
       Alert.alert('Success', 'Registration completed successfully');
       
-      // ✅ Refresh without triggering registration
+      // Refresh user data
       setTimeout(async () => {
         await fetchUserData(true);
       }, 500);
@@ -385,16 +460,18 @@ useEffect(() => {
     }
   };
 
-
 const handleCloseRegistrationModal = () => {
-  // ✅ Only close if registration hasn't been completed
-  if (!registrationCompleted) {
-    setShowRegistrationModal(false);
-    setName('');
-    setAddress('');
-    setLoadingRegistration(false);
-  }
+  // Only close if user explicitly cancels
+  setShowRegistrationModal(false);
+  setName('');
+  setAddress('');
+  setLoadingRegistration(false);
+  
+  // If user cancels registration, log them out
+  AsyncStorage.multiRemove(['tempAuthToken', 'verificationId', 'phoneNumber']);
+  navigation.reset({ index: 0, routes: [{ name: 'WelcomeScreen3' }] });
 };
+
 
   const fetchLastLocation = async () => {
     try {

@@ -83,7 +83,7 @@ const ProfileScreen = () => {
         return;
       }
       
-      const response = await axios.get(`${backendUrl}/api/users/me/profile`, {
+      const response = await axios.get(`${backendUrl}/api/users/profile`, {
         headers: { Authorization: `Bearer ${token}` },
         timeout: 10000,
       });

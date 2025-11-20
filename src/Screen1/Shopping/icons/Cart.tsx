@@ -1,15 +1,18 @@
+// /Users/webasebrandings/Downloads/new_far-main 2/src/Screen1/Shopping/icons/Cart.tsx
 import React, { useState, useContext } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { CartContext } from '../ShoppingContent';
-
-const BASE_URL = 'https://goodbackend.onrender.com';
+import { useAddress } from '../AddressContext';
+import { getBackendUrl, getImageUrl } from '../../../../src/util/backendConfig'; // Import getImageUrl
 
 const Cart = () => {
   const navigation = useNavigation();
-  const { cartItems, removeFromCart, clearCart } = useContext(CartContext);
+  const { cartItems, removeFromCart, clearCart, updateQuantity } = useContext(CartContext);
+  const { defaultAddress, addresses } = useAddress();
   const [loading, setLoading] = useState(false);
+  const [selectedPayment, setSelectedPayment] = useState('card');
 
   const handleRemoveItem = (productId: string) => {
     Alert.alert(
@@ -28,41 +31,83 @@ const Cart = () => {
       return;
     }
     
+    if (!defaultAddress) {
+      Alert.alert('Address Required', 'Please add a delivery address before checkout.');
+      navigation.navigate('AddressManagement');
+      return;
+    }
+    
     setLoading(true);
     // Simulate checkout process
     setTimeout(() => {
       setLoading(false);
       Alert.alert(
         'Order Confirmed',
-        'Your order has been placed successfully!',
+        `Your order has been placed successfully!\nPayment Method: ${getPaymentMethodText(selectedPayment)}`,
         [
-          { text: 'OK', onPress: () => {
-            clearCart();
-            navigation.navigate('Order');
-          }}
+          { 
+            text: 'OK', 
+            onPress: () => {
+              clearCart();
+              navigation.navigate('Order');
+            }
+          }
         ]
       );
     }, 1500);
   };
 
-  const calculateTotal = () => {
+  const calculateSubtotal = () => {
     return cartItems.reduce((total, item) => total + (item.price * item.quantity), 0);
+  };
+
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
+    const shipping = 5.99;
+    const tax = subtotal * 0.08;
+    return subtotal + shipping + tax;
   };
 
   const calculateTotalItems = () => {
     return cartItems.reduce((total, item) => total + item.quantity, 0);
   };
 
+  const getPaymentMethodText = (method: string) => {
+    switch (method) {
+      case 'card': return 'Credit/Debit Card';
+      case 'upi': return 'UPI Payment';
+      case 'cod': return 'Cash on Delivery';
+      default: return 'Credit/Debit Card';
+    }
+  };
+
   const renderCartItem = ({ item }: any) => (
     <View style={styles.cartItem}>
       <Image
-        source={{ uri: item.images[0] ? `${BASE_URL}${item.images[0]}` : 'https://via.placeholder.com/100' }}
+        source={{ uri: item.images && item.images.length > 0 ? getImageUrl(item.images[0]) : 'https://via.placeholder.com/100' }} // Use getImageUrl function
         style={styles.itemImage}
       />
-      <View style={styles.itemInfo}>
+      <View style={styles.itemDetails}>
         <Text style={styles.itemName}>{item.name}</Text>
-        <Text style={styles.itemPrice}>${item.price.toFixed(2)} × {item.quantity}</Text>
-        <Text style={styles.itemTotal}>${(item.price * item.quantity).toFixed(2)}</Text>
+        <Text style={styles.itemPrice}>₹{item.price.toFixed(2)}</Text>
+        
+        <View style={styles.quantityContainer}>
+          <TouchableOpacity 
+            style={styles.quantityButton}
+            onPress={() => updateQuantity(item._id, item.quantity - 1)}
+          >
+            <MaterialIcons name="remove" size={18} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.quantity}>{item.quantity}</Text>
+          <TouchableOpacity 
+            style={styles.quantityButton}
+            onPress={() => updateQuantity(item._id, item.quantity + 1)}
+          >
+            <MaterialIcons name="add" size={18} color="#333" />
+          </TouchableOpacity>
+        </View>
+        
+        <Text style={styles.itemTotal}>₹{(item.price * item.quantity).toFixed(2)}</Text>
       </View>
       <TouchableOpacity 
         style={styles.removeButton} 
@@ -75,6 +120,7 @@ const Cart = () => {
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <MaterialIcons name="arrow-back" size={24} color="#333" />
@@ -82,7 +128,7 @@ const Cart = () => {
         <Text style={styles.headerTitle}>My Cart</Text>
         {cartItems.length > 0 && (
           <TouchableOpacity onPress={clearCart} style={styles.clearButton}>
-            <Text style={styles.clearButtonText}>Clear</Text>
+            <Text style={styles.clearButtonText}>Clear All</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -90,7 +136,8 @@ const Cart = () => {
       {cartItems.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialIcons name="shopping-cart" size={80} color="#ddd" />
-          <Text style={styles.emptyText}>Your cart is empty</Text>
+          <Text style={styles.emptyTitle}>Your cart is empty</Text>
+          <Text style={styles.emptyText}>Looks like you haven't added anything to your cart yet</Text>
           <TouchableOpacity 
             style={styles.shopButton} 
             onPress={() => navigation.navigate('Shopping')}
@@ -100,34 +147,133 @@ const Cart = () => {
         </View>
       ) : (
         <>
-          <FlatList
-            data={cartItems}
-            renderItem={renderCartItem}
-            keyExtractor={(item) => item._id}
-            contentContainerStyle={styles.cartList}
-            showsVerticalScrollIndicator={false}
-          />
+          <ScrollView style={styles.cartList}>
+            <FlatList
+              data={cartItems}
+              renderItem={renderCartItem}
+              keyExtractor={(item) => item._id}
+              scrollEnabled={false}
+            />
 
-          <View style={styles.summaryContainer}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Items ({calculateTotalItems()})</Text>
-              <Text style={styles.summaryValue}>${calculateTotal().toFixed(2)}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Shipping</Text>
-              <Text style={styles.summaryValue}>$5.99</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Tax</Text>
-              <Text style={styles.summaryValue}>${(calculateTotal() * 0.08).toFixed(2)}</Text>
-            </View>
-            <View style={[styles.summaryRow, styles.totalRow]}>
-              <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>
-                ${(calculateTotal() + 5.99 + (calculateTotal() * 0.08)).toFixed(2)}
-              </Text>
+            {/* Order Summary */}
+            <View style={styles.summaryContainer}>
+              <Text style={styles.summaryTitle}>Order Summary</Text>
+              
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Items ({calculateTotalItems()})</Text>
+                <Text style={styles.summaryValue}>₹{calculateSubtotal().toFixed(2)}</Text>
+              </View>
+              
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Shipping</Text>
+                <Text style={styles.summaryValue}>₹5.99</Text>
+              </View>
+              
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Tax</Text>
+                <Text style={styles.summaryValue}>₹{(calculateSubtotal() * 0.08).toFixed(2)}</Text>
+              </View>
+              
+              <View style={[styles.summaryRow, styles.totalRow]}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>₹{calculateTotal().toFixed(2)}</Text>
+              </View>
             </View>
 
+            {/* Delivery Address */}
+            <View style={styles.addressContainer}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Delivery Address</Text>
+                <TouchableOpacity 
+                  onPress={() => navigation.navigate('AddressManagement')}
+                  style={styles.editButton}
+                >
+                  <Text style={styles.editButtonText}>Edit</Text>
+                </TouchableOpacity>
+              </View>
+              {defaultAddress ? (
+                <View style={styles.addressCard}>
+                  <View style={styles.addressHeader}>
+                    <Text style={styles.addressName}>{defaultAddress.name}</Text>
+                    <View style={styles.defaultBadge}>
+                      <Text style={styles.defaultBadgeText}>Default</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.addressPhone}>{defaultAddress.phone}</Text>
+                  <Text style={styles.addressText}>{defaultAddress.addressLine1}</Text>
+                  {defaultAddress.addressLine2 && (
+                    <Text style={styles.addressText}>{defaultAddress.addressLine2}</Text>
+                  )}
+                  <Text style={styles.addressText}>
+                    {defaultAddress.city}, {defaultAddress.state} - {defaultAddress.pincode}
+                  </Text>
+                  <Text style={styles.addressText}>{defaultAddress.country}</Text>
+                </View>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.addAddressButton}
+                  onPress={() => navigation.navigate('AddressManagement')}
+                >
+                  <MaterialIcons name="add" size={20} color="#4caf50" />
+                  <Text style={styles.addAddressText}>Add Delivery Address</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Payment Method */}
+            <View style={styles.paymentContainer}>
+              <Text style={styles.sectionTitle}>Payment Method</Text>
+              
+              <TouchableOpacity 
+                style={[styles.paymentCard, selectedPayment === 'card' && styles.selectedPaymentCard]}
+                onPress={() => setSelectedPayment('card')}
+              >
+                <MaterialIcons name="credit-card" size={24} color="#4caf50" />
+                <View style={styles.paymentInfo}>
+                  <Text style={styles.paymentTitle}>Credit/Debit Card</Text>
+                  <Text style={styles.paymentSubtitle}>Visa •••• 1234</Text>
+                </View>
+                {selectedPayment === 'card' && (
+                  <MaterialIcons name="check-circle" size={20} color="#4caf50" />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.paymentCard, selectedPayment === 'upi' && styles.selectedPaymentCard]}
+                onPress={() => setSelectedPayment('upi')}
+              >
+                <MaterialIcons name="account-balance-wallet" size={24} color="#2196f3" />
+                <View style={styles.paymentInfo}>
+                  <Text style={styles.paymentTitle}>UPI Payment</Text>
+                  <Text style={styles.paymentSubtitle}>Pay via UPI</Text>
+                </View>
+                {selectedPayment === 'upi' && (
+                  <MaterialIcons name="check-circle" size={20} color="#4caf50" />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.paymentCard, selectedPayment === 'cod' && styles.selectedPaymentCard]}
+                onPress={() => setSelectedPayment('cod')}
+              >
+                <MaterialIcons name="local-atm" size={24} color="#ff9800" />
+                <View style={styles.paymentInfo}>
+                  <Text style={styles.paymentTitle}>Cash on Delivery</Text>
+                  <Text style={styles.paymentSubtitle}>Pay when delivered</Text>
+                </View>
+                {selectedPayment === 'cod' && (
+                  <MaterialIcons name="check-circle" size={20} color="#4caf50" />
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+
+          {/* Checkout Button */}
+          <View style={styles.checkoutContainer}>
+            <View style={styles.totalContainer}>
+              <Text style={styles.totalAmount}>₹{calculateTotal().toFixed(2)}</Text>
+              <Text style={styles.totalLabel}>Total Amount</Text>
+            </View>
             <TouchableOpacity 
               style={[styles.checkoutButton, loading && styles.disabledButton]} 
               onPress={handleCheckout}
@@ -136,7 +282,7 @@ const Cart = () => {
               {loading ? (
                 <Text style={styles.checkoutButtonText}>Processing...</Text>
               ) : (
-                <Text style={styles.checkoutButtonText}>Checkout</Text>
+                <Text style={styles.checkoutButtonText}>Proceed to Checkout</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -155,10 +301,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 15,
+    paddingHorizontal: 20,
     paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#f0f0f0',
+    backgroundColor: '#fff',
   },
   backButton: {
     padding: 5,
@@ -169,7 +316,7 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   clearButton: {
-    padding: 5,
+    padding: 8,
   },
   clearButtonText: {
     fontSize: 14,
@@ -177,13 +324,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   cartList: {
-    padding: 15,
-    paddingBottom: 200,
+    flex: 1,
+    padding: 20,
   },
   cartItem: {
     flexDirection: 'row',
     backgroundColor: '#fff',
-    borderRadius: 10,
+    borderRadius: 12,
     padding: 15,
     marginBottom: 15,
     elevation: 2,
@@ -191,6 +338,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   itemImage: {
     width: 80,
@@ -198,25 +347,48 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 15,
   },
-  itemInfo: {
+  itemDetails: {
     flex: 1,
-    justifyContent: 'space-between',
   },
   itemName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    marginBottom: 5,
+    marginBottom: 8,
   },
   itemPrice: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#4caf50',
+    marginBottom: 12,
+  },
+  quantityContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  quantityButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  quantity: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginHorizontal: 15,
+    minWidth: 20,
+    textAlign: 'center',
   },
   itemTotal: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#4caf50',
+    color: '#333',
   },
   removeButton: {
     justifyContent: 'center',
@@ -227,12 +399,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 30,
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 20,
+    marginBottom: 10,
   },
   emptyText: {
-    fontSize: 18,
-    color: '#999',
-    marginTop: 20,
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
     marginBottom: 30,
   },
   shopButton: {
@@ -247,19 +427,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   summaryContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
     padding: 20,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: -2 },
+    marginBottom: 20,
+  },
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 15,
   },
   summaryRow: {
     flexDirection: 'row',
@@ -277,7 +454,7 @@ const styles = StyleSheet.create({
   },
   totalRow: {
     borderTopWidth: 1,
-    borderTopColor: '#eee',
+    borderTopColor: '#e0e0e0',
     paddingTop: 10,
     marginTop: 5,
   },
@@ -291,12 +468,147 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#4caf50',
   },
+  addressContainer: {
+    marginBottom: 20,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+  },
+  editButton: {
+    padding: 5,
+  },
+  editButtonText: {
+    color: '#4caf50',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  addressCard: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  addressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  addressName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+  },
+  defaultBadge: {
+    backgroundColor: '#4caf50',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  defaultBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  addressPhone: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
+  },
+  addressText: {
+    fontSize: 14,
+    color: '#666',
+    lineHeight: 20,
+  },
+  addAddressButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderStyle: 'dashed',
+  },
+  addAddressText: {
+    color: '#4caf50',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  paymentContainer: {
+    marginBottom: 100,
+  },
+  paymentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginBottom: 10,
+  },
+  selectedPaymentCard: {
+    borderColor: '#4caf50',
+    backgroundColor: '#f1f8e9',
+  },
+  paymentInfo: {
+    flex: 1,
+    marginLeft: 15,
+  },
+  paymentTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  paymentSubtitle: {
+    fontSize: 14,
+    color: '#666',
+  },
+  checkoutContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  totalContainer: {
+    alignItems: 'flex-start',
+  },
+  totalAmount: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#4caf50',
+  },
+  totalLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
   checkoutButton: {
     backgroundColor: '#4caf50',
     borderRadius: 8,
     paddingVertical: 15,
+    paddingHorizontal: 30,
+    flex: 1,
+    marginLeft: 20,
     alignItems: 'center',
-    marginTop: 15,
   },
   disabledButton: {
     backgroundColor: '#cccccc',

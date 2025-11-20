@@ -1,12 +1,20 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+// /Users/webasebrandings/Downloads/new_far-main 2/src/Screen1/Shopping/ViewAll.tsx
+import React, { useContext } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import ProductCard from './ProductCard';
+import { CartContext } from './ShoppingContent';
+import { getBackendUrl } from '../../util/backendConfig';
 
 const ViewAll = () => {
   const navigation = useNavigation();
   const route = useRoute();
-  const { title, products, addToCart } = route.params as any;
+  const { addToCart } = useContext(CartContext);
+  const { title, products } = route.params as any;
+
+  const handleBuyNow = (product) => {
+    navigation.navigate('Buying', { product });
+  };
 
   return (
     <View style={styles.container}>
@@ -25,7 +33,13 @@ const ViewAll = () => {
       ) : (
         <FlatList
           data={products}
-          renderItem={({ item }) => <ProductCard product={item} addToCart={addToCart} />}
+          renderItem={({ item }) => (
+            <ProductCard 
+              product={item} 
+              addToCart={addToCart}
+              buyNow={handleBuyNow}
+            />
+          )}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.productsList}
           showsVerticalScrollIndicator={false}

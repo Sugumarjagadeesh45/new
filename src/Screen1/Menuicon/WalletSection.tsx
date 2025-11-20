@@ -20,7 +20,7 @@ const WalletSection: React.FC = () => {
       const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
       const backendUrl = getBackendUrl();
       
-      const response = await axios.get(`${backendUrl}/api/users/wallet`, {
+      const response = await axios.get(`${backendUrl}/api/wallet`, {
         headers: { Authorization: `Bearer ${token}` },
         timeout: 10000,
       });

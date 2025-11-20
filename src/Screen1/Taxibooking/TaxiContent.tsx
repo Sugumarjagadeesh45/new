@@ -517,13 +517,13 @@ const TaxiContent: React.FC<TaxiContentProps> = ({
     setCurrentSpeed(speedKmh);
 
     // Dynamic animation duration based on speed - CONTINUOUS MOVEMENT
-    let animationDuration = 2000; // Base 2 seconds for smooth continuous movement
+    let animationDuration = 4000; // Base 2 seconds for smooth continuous movement
     
     if (speedKmh > 0) {
-      if (speedKmh < 10) animationDuration = 3000; // slow movement - longer duration
-      else if (speedKmh < 30) animationDuration = 2000; // medium movement
-      else if (speedKmh < 60) animationDuration = 1500; // fast movement
-      else animationDuration = 1000; // very fast movement
+      if (speedKmh < 10) animationDuration = 4000; // slow movement - longer duration
+      else if (speedKmh < 30) animationDuration = 3000; // medium movement
+      else if (speedKmh < 60) animationDuration = 2500; // fast movement
+      else animationDuration = 2000; // very fast movement
     }
 
     console.log(`🚗 Driver Speed: ${speedKmh.toFixed(1)} km/h | Animation: ${animationDuration}ms`);

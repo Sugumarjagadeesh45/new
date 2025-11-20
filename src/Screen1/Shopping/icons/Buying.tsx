@@ -1,10 +1,11 @@
+// /Users/webasebrandings/Downloads/new_far-main 2/src/Screen1/Shopping/icons/Buying.tsx
 import React, { useState, useContext, useRef } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, ScrollView, Alert, Dimensions, FlatList } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Dimensions, FlatList } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { CartContext } from '../ShoppingContent';
+import { getBackendUrl, getImageUrl } from '../../../../src/util/backendConfig'; // Import getImageUrl
 
-const BASE_URL = 'https://goodbackend.onrender.com';
 const { width } = Dimensions.get('window');
 
 const Buying = () => {
@@ -15,6 +16,14 @@ const Buying = () => {
   const [quantity, setQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
+
+  // Calculate discount percentage
+  const calculateDiscount = (originalPrice: number, currentPrice: number) => {
+    if (originalPrice <= currentPrice || originalPrice <= 0) return 0;
+    return Math.round(((originalPrice - currentPrice) / originalPrice) * 100);
+  };
+
+  const discountPercentage = calculateDiscount(product.originalPrice, product.price);
 
   const handleAddToCart = () => {
     for (let i = 0; i < quantity; i++) {
@@ -53,7 +62,7 @@ const Buying = () => {
   const renderImageItem = ({ item }: { item: string }) => (
     <View style={styles.imageContainer}>
       <Image
-        source={{ uri: item ? `${BASE_URL}${item}` : 'https://via.placeholder.com/300' }}
+        source={{ uri: getImageUrl(item) || 'https://via.placeholder.com/300' }} // Use getImageUrl function
         style={styles.productImage}
         resizeMode="contain"
       />
@@ -99,6 +108,13 @@ const Buying = () => {
               ))}
             </View>
           )}
+
+          {/* Discount Badge */}
+          {discountPercentage > 0 && (
+            <View style={styles.discountBadge}>
+              <Text style={styles.discountBadgeText}>{discountPercentage}% OFF</Text>
+            </View>
+          )}
         </View>
         
         <View style={styles.productInfo}>
@@ -106,14 +122,9 @@ const Buying = () => {
           <Text style={styles.productDescription}>{product.description}</Text>
           
           <View style={styles.priceContainer}>
-            <Text style={styles.price}>${product.price.toFixed(2)}</Text>
+            <Text style={styles.price}>₹{product.price.toFixed(2)}</Text>
             {product.originalPrice > product.price && (
-              <Text style={styles.originalPrice}>${product.originalPrice.toFixed(2)}</Text>
-            )}
-            {product.discount > 0 && (
-              <View style={styles.discountBadge}>
-                <Text style={styles.discountText}>{product.discount}% OFF</Text>
-              </View>
+              <Text style={styles.originalPrice}>₹{product.originalPrice.toFixed(2)}</Text>
             )}
           </View>
 
@@ -132,7 +143,7 @@ const Buying = () => {
 
           <View style={styles.totalContainer}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalPrice}>${(product.price * quantity).toFixed(2)}</Text>
+            <Text style={styles.totalPrice}>₹{(product.price * quantity).toFixed(2)}</Text>
           </View>
 
           <View style={styles.buttonsContainer}>
@@ -211,6 +222,20 @@ const styles = StyleSheet.create({
   inactiveDot: {
     backgroundColor: '#ccc',
   },
+  discountBadge: {
+    position: 'absolute',
+    top: 15,
+    left: 15,
+    backgroundColor: '#e53935',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  discountBadgeText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
   productInfo: {
     padding: 20,
   },
@@ -242,17 +267,6 @@ const styles = StyleSheet.create({
     color: '#999',
     textDecorationLine: 'line-through',
     marginRight: 10,
-  },
-  discountBadge: {
-    backgroundColor: '#ffebee',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  discountText: {
-    fontSize: 14,
-    color: '#e53935',
-    fontWeight: '600',
   },
   quantityContainer: {
     flexDirection: 'row',
