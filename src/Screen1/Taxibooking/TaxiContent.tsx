@@ -2455,77 +2455,87 @@ const TaxiContent: React.FC<TaxiContentProps> = ({
     setShowRouteDetailsModal(true);
   };
 
-  const handleConfirmBookingFromModal = async () => {
-    try {
-      console.log('🚨 ===== REAL RIDE BOOKING START =====');
+const handleConfirmBookingFromModal = async () => {
+  try {
+    console.log('🚨 ===== REAL RIDE BOOKING START =====');
+    
+    // ✅ ADD DEBUG LOGS TO CHECK LOCATIONS
+    console.log('📍 Pickup Location:', pickupLocation);
+    console.log('📍 Dropoff Location:', dropoffLocation);
+    console.log('📱 User ID:', await AsyncStorage.getItem('userId'));
+    
+    // Get user data from AsyncStorage
+    const userId = await AsyncStorage.getItem('userId');
+    const customerId = await AsyncStorage.getItem('customerId');
+    const userName = await AsyncStorage.getItem('userName');
+    const userMobile = await AsyncStorage.getItem('userMobile');
+    const token = await AsyncStorage.getItem('authToken');
+
+    // ✅ Validate required data with better error messages
+    if (!userId) {
+      Alert.alert("Booking Error", "User ID not found. Please login again.");
+      return;
+    }
+    
+    if (!pickupLocation) {
+      Alert.alert("Booking Error", "Please select a pickup location.");
+      return;
+    }
+    
+    if (!dropoffLocation) {
+      Alert.alert("Booking Error", "Please select a dropoff location.");
+      return;
+    }
+
+    // ✅ Use LAST 4 DIGITS of customerId as OTP
+    let otp = '';
+    if (customerId && customerId.length >= 4) {
+      otp = customerId.slice(-4);
+    } else if (userId && userId.length >= 4) {
+      otp = userId.slice(-4);
+    } else {
+      otp = Date.now().toString().slice(-4);
+    }
+
+    // Rest of your booking code...
+    const rideData = {
+      userId,
+      customerId: customerId || userId,
+      userName: userName || 'User',
+      userMobile: userMobile || 'N/A',
+      pickup: {
+        lat: pickupLocation.latitude,
+        lng: pickupLocation.longitude,
+        address: pickup,
+      },
+      drop: {
+        lat: dropoffLocation.latitude,
+        lng: dropoffLocation.longitude,
+        address: dropoff,
+      },
+      vehicleType: selectedRideType,
+      otp,
+      estimatedPrice,
+      distance: distance.replace(' km', ''),
+      travelTime: travelTime.replace(' mins', ''),
+      wantReturn,
+      token,
       
-      // Get user data from AsyncStorage
-      const userId = await AsyncStorage.getItem('userId');
-      const customerId = await AsyncStorage.getItem('customerId');
-      const userName = await AsyncStorage.getItem('userName');
-      const userMobile = await AsyncStorage.getItem('userMobile');
-      const token = await AsyncStorage.getItem('authToken');
+      // FCM flags
+      _fcmRequired: true,
+      _sendFCM: true,
+      _notifyAllDrivers: true,
+      _source: 'user_app',
+      _timestamp: Date.now(),
+    };
 
-      // ✅ Use LAST 4 DIGITS of customerId as OTP
-      let otp = '';
-      if (customerId && customerId.length >= 4) {
-        otp = customerId.slice(-4);
-      } else if (userId && userId.length >= 4) {
-        otp = userId.slice(-4);
-      } else {
-        otp = Date.now().toString().slice(-4);
-      }
-
-      // Validate required data
-      if (!userId || !pickupLocation || !dropoffLocation) {
-        console.error('❌ Missing required booking data');
-        Alert.alert("Booking Error", "Missing required information. Please try again.");
-        return;
-      }
-
-      // ✅ ENHANCED FCM STRUCTURE - Explicit FCM flag
-      const rideData = {
-        userId,
-        customerId: customerId || userId,
-        userName: userName || 'User',
-        userMobile: userMobile || 'N/A',
-        pickup: {
-          lat: pickupLocation.latitude,
-          lng: pickupLocation.longitude,
-          address: pickup,
-        },
-        drop: {
-          lat: dropoffLocation.latitude,
-          lng: dropoffLocation.longitude,
-          address: dropoff,
-        },
-        vehicleType: selectedRideType,
-        otp,
-        estimatedPrice,
-        distance: distance.replace(' km', ''),
-        travelTime: travelTime.replace(' mins', ''),
-        wantReturn,
-        token,
-        
-        // ✅ EXPLICIT FCM FLAGS
-        _fcmRequired: true,
-        _sendFCM: true,
-        _notifyAllDrivers: true,
-        _source: 'user_app',
-        _timestamp: Date.now(),
-      };
-
-      console.log('📦 Sending ride data with EXPLICIT FCM flags:', {
-        ...rideData,
-        token: token ? '***' : 'NULL'
-      });
-      console.log('🔐 OTP:', otp);
-      
-      // Set booking state
-      setIsBooking(true);
-      setRideStatus("searching");
-      
-      socket.emit('bookRide', rideData, (response) => {
+    console.log('📦 Sending ride data with locations confirmed');
+    
+    // Set booking state
+    setIsBooking(true);
+    setRideStatus("searching");
+    
+    socket.emit('bookRide', rideData, (response) => {
         console.log('📨 Server response:', response);
         
         if (response && response.success) {
@@ -2745,36 +2755,92 @@ const TaxiContent: React.FC<TaxiContentProps> = ({
     }
   };
 
+ 
   // Fetch user data
-  useEffect(() => {
-    if (!isMountedRef.current) return;
-    
-    const fetchUserData = async () => {
-      try {
-        const token = await AsyncStorage.getItem('authToken');
-        if (!token) return;
-        const backendUrl = getBackendUrl();
-        const response = await axios.get(`${backendUrl}/api/users/profile`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const userProfile = response.data;
-        console.log('📋 User Profile:', userProfile);
-        const userMobile = userProfile.mobile ||
-                           userProfile.phone ||
-                           userProfile.phoneNumber ||
-                           userProfile.mobileNumber ||
-                           '';
-        await AsyncStorage.setItem('userId', userProfile._id);
-        await AsyncStorage.setItem('customerId', userProfile.customerId || userProfile._id);
-        await AsyncStorage.setItem('userName', userProfile.name || userProfile.username);
-        await AsyncStorage.setItem('userMobile', userProfile.phoneNumber);
-        await AsyncStorage.setItem('userAddress', userProfile.address || '');
-      } catch (error) {
-        console.error('Error fetching user data:', error);
+useEffect(() => {
+  if (!isMountedRef.current) return;
+  
+  const fetchUserData = async () => {
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      if (!token) {
+        console.log('No auth token found');
+        return;
       }
-    };
-    fetchUserData();
-  }, []);
+      
+      const backendUrl = getBackendUrl();
+      const response = await axios.get(`${backendUrl}/api/users/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      console.log('📋 User Profile Response:', response.data);
+      
+      const userProfile = response.data;
+      
+      if (userProfile.success && userProfile.user) {
+        const userData = userProfile.user;
+        
+        console.log('👤 User Data to store:', {
+          userId: userData._id,
+          customerId: userData.customerId,
+          userName: userData.name,
+          userMobile: userData.phoneNumber,
+          userAddress: userData.address
+        });
+        
+        // ✅ FIXED: Safe storage with validation
+        const storageBatch = [];
+        
+        // Check each value before adding to batch
+        if (userData._id && userData._id !== 'undefined') {
+          storageBatch.push(['userId', userData._id]);
+        } else {
+          console.warn('⚠️ userId is undefined or invalid');
+        }
+        
+        if (userData.customerId && userData.customerId !== 'undefined') {
+          storageBatch.push(['customerId', userData.customerId]);
+        } else if (userData._id && userData._id !== 'undefined') {
+          storageBatch.push(['customerId', userData._id]); // fallback to _id
+        }
+        
+        if (userData.name && userData.name !== 'undefined') {
+          storageBatch.push(['userName', userData.name]);
+        } else {
+          storageBatch.push(['userName', '']); // store empty string
+        }
+        
+        if (userData.phoneNumber && userData.phoneNumber !== 'undefined') {
+          storageBatch.push(['userMobile', userData.phoneNumber]);
+        }
+        
+        if (userData.address && userData.address !== 'undefined') {
+          storageBatch.push(['userAddress', userData.address]);
+        } else {
+          storageBatch.push(['userAddress', '']); // store empty string instead of undefined
+        }
+        
+        // Only execute if we have items to store
+        if (storageBatch.length > 0) {
+          await AsyncStorage.multiSet(storageBatch);
+          console.log('✅ User data successfully stored in AsyncStorage');
+        } else {
+          console.warn('⚠️ No valid user data to store');
+        }
+      } else {
+        console.error('❌ Invalid user profile response structure');
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching user data:', error.message);
+      // Don't attempt to store anything on error
+    }
+  };
+  
+  fetchUserData();
+}, []);
+
+
   
   // Handle ride created
   useEffect(() => {

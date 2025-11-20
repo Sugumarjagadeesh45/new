@@ -147,7 +147,7 @@ const WelcomeScreen3 = () => {
       
       if (response.data.success) {
         if (response.data.token && !response.data.newUser) {
-          // Existing user - store auth token and registration status
+          // ✅ FIXED: Existing user flow
           await AsyncStorage.multiSet([
             ['authToken', response.data.token],
             ['isRegistered', 'true'],
@@ -155,7 +155,7 @@ const WelcomeScreen3 = () => {
           ]);
           await AsyncStorage.removeItem('verificationId');
           
-          // Navigate to Screen1 with a flag indicating user is registered
+          console.log('✅ Existing user, navigating to Screen1');
           navigation.reset({
             index: 0,
             routes: [{ 
@@ -166,15 +166,15 @@ const WelcomeScreen3 = () => {
               } 
             }],
           });
-        } else if (response.data.newUser) {
-          // New user - store temp token and registration status
+        } else {
+          // ✅ FIXED: New user flow
           await AsyncStorage.multiSet([
-            ['tempAuthToken', response.data.tempToken || mobileNumber],
+            ['tempAuthToken', mobileNumber], // Using phone as temp token
             ['isRegistered', 'false'],
             ['phoneNumber', mobileNumber]
           ]);
           
-          // Navigate to Screen1 with a flag indicating user needs registration
+          console.log('✅ New user, navigating to Screen1 for registration');
           navigation.reset({
             index: 0,
             routes: [{ 
@@ -186,9 +186,11 @@ const WelcomeScreen3 = () => {
             }],
           });
         }
+      } else {
+        throw new Error(response.data.error || 'Verification failed');
       }
     } catch (backendError: any) {
-      console.warn('Backend unavailable, proceeding as new user');
+      console.warn('Backend unavailable, proceeding as new user:', backendError.message);
       await AsyncStorage.multiSet([
         ['tempAuthToken', mobileNumber],
         ['isRegistered', 'false'],
@@ -207,12 +209,12 @@ const WelcomeScreen3 = () => {
       });
     }
   } catch (error: any) {
+    console.error('OTP verification error:', error);
     Alert.alert('Error', error.message || 'The OTP is invalid.');
   } finally {
     setLoading(false);
   }
 }, [code, mobileNumber, navigation]);
-
 
 
   return (
