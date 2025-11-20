@@ -97,7 +97,7 @@ const ProfileScreen = () => {
             : `${backendUrl}${user.profilePicture}?t=${Date.now()}`;
         }
         
-        setProfileData({
+        const updatedProfile = {
           name: user.name || '',
           phoneNumber: user.phoneNumber || '',
           customerId: user.customerId || '',
@@ -106,7 +106,12 @@ const ProfileScreen = () => {
           altMobile: user.altMobile || '',
           profilePicture: profilePictureUrl,
           address: user.address || '',
-        });
+        };
+        
+        setProfileData(updatedProfile);
+        
+        // Store profile data for shopping components
+        await AsyncStorage.setItem('userProfile', JSON.stringify(updatedProfile));
       }
     } catch (error) {
       console.error('❌ Error fetching profile:', error);
@@ -119,6 +124,7 @@ const ProfileScreen = () => {
             onPress: () => {
               AsyncStorage.removeItem('userToken');
               AsyncStorage.removeItem('authToken');
+              AsyncStorage.removeItem('userProfile');
               navigation.navigate('WelcomeScreen3');
             }
           }]
@@ -131,6 +137,28 @@ const ProfileScreen = () => {
     }
   };
   
+  const syncProfileWithShopping = async (updatedProfile: ProfileData) => {
+    try {
+      // Update shopping address context if exists
+      const profileAddress = {
+        name: updatedProfile.name,
+        phone: updatedProfile.phoneNumber || updatedProfile.altMobile,
+        addressLine1: updatedProfile.address,
+        city: extractCityFromAddress(updatedProfile.address),
+        state: extractStateFromAddress(updatedProfile.address),
+        pincode: extractPincodeFromAddress(updatedProfile.address) || '000000',
+        country: 'India',
+        isDefault: true,
+      };
+      
+      // Store for shopping components to use
+      await AsyncStorage.setItem('shippingAddress', JSON.stringify(profileAddress));
+      
+    } catch (error) {
+      console.error('Error syncing profile with shopping:', error);
+    }
+  };
+
   const handleUpdateProfile = async () => {
     // Validate email before updating
     if (profileData.email && !validateEmail(profileData.email)) {
@@ -170,15 +198,24 @@ const ProfileScreen = () => {
           ? `${backendUrl}${user.profilePicture}?t=${Date.now()}`
           : '';
         
-        setProfileData(prev => ({
-          ...prev,
+        const updatedProfile = {
           name: user.name,
+          phoneNumber: user.phoneNumber,
+          customerId: user.customerId,
           email: user.email,
           gender: user.gender,
           altMobile: user.altMobile,
           address: user.address,
           profilePicture: imageUrl,
-        }));
+        };
+        
+        setProfileData(updatedProfile);
+        
+        // Sync with shopping data
+        await syncProfileWithShopping(updatedProfile);
+        
+        // Update stored profile
+        await AsyncStorage.setItem('userProfile', JSON.stringify(updatedProfile));
         
         navigation.navigate('Screen1', { refresh: true });
         Alert.alert('Success', 'Profile updated successfully');
@@ -259,10 +296,15 @@ const ProfileScreen = () => {
           ? `${backendUrl}${user.profilePicture}?t=${Date.now()}`
           : '';
         
-        setProfileData(prev => ({
-          ...prev,
+        const updatedProfile = {
+          ...profileData,
           profilePicture: imageUrl,
-        }));
+        };
+        
+        setProfileData(updatedProfile);
+        
+        // Update stored profile
+        await AsyncStorage.setItem('userProfile', JSON.stringify(updatedProfile));
         
         navigation.navigate('Screen1', { refresh: true });
         Alert.alert('Success', 'Profile picture updated successfully');
@@ -277,9 +319,8 @@ const ProfileScreen = () => {
     }
   };
   
-  const getAddressFromCoordinates = async (latitude: number, longitude: number) => {
+  const getAddressFromCoordinates = async (latitude: number, longitude: number): Promise<string> => {
     try {
-      // Using OpenStreetMap Nominatim API for reverse geocoding
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`
       );
@@ -314,12 +355,30 @@ const ProfileScreen = () => {
         async (position) => {
           const { latitude, longitude } = position.coords;
           try {
-            // Get the actual address from coordinates
             const address = await getAddressFromCoordinates(latitude, longitude);
             setProfileData(prev => ({
               ...prev,
               address,
             }));
+            
+            // Auto-save the address to profile
+            const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+            if (token) {
+              const backendUrl = getBackendUrl();
+              await axios.put(
+                `${backendUrl}/api/users/profile`,
+                { address },
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              
+              // Update stored profile
+              const updatedProfile = { ...profileData, address };
+              await AsyncStorage.setItem('userProfile', JSON.stringify(updatedProfile));
+              
+              // Sync with shopping
+              await syncProfileWithShopping(updatedProfile);
+            }
+            
           } catch (error) {
             console.error('Error getting address:', error);
             Alert.alert('Error', 'Failed to get address from location');
@@ -550,6 +609,22 @@ const ProfileScreen = () => {
       </ScrollView>
     </KeyboardAvoidingView>
   );
+};
+
+// Helper functions
+const extractCityFromAddress = (address: string): string => {
+  const cityMatch = address.match(/(\w+)(?=\s*\d{6}|$)/);
+  return cityMatch ? cityMatch[1] : 'City';
+};
+
+const extractStateFromAddress = (address: string): string => {
+  const stateMatch = address.match(/(Maharashtra|Karnataka|Tamil Nadu|Delhi|Kerala|Gujarat)/i);
+  return stateMatch ? stateMatch[1] : 'State';
+};
+
+const extractPincodeFromAddress = (address: string): string | null => {
+  const pincodeMatch = address.match(/\b\d{6}\b/);
+  return pincodeMatch ? pincodeMatch[0] : null;
 };
 
 const styles = StyleSheet.create({

@@ -1,18 +1,34 @@
-// /Users/webasebrandings/Downloads/new_far-main 2/src/Screen1/Shopping/icons/Cart.tsx
-import React, { useState, useContext } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import React, { useState, useContext, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import MaterialIcons from 'react-native-vector-icons/MaterialIcons';
 import { useNavigation } from '@react-navigation/native';
 import { CartContext } from '../ShoppingContent';
 import { useAddress } from '../AddressContext';
-import { getBackendUrl, getImageUrl } from '../../../../src/util/backendConfig'; // Import getImageUrl
+import { getImageUrl } from '../../../../src/util/backendConfig';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const Cart = () => {
   const navigation = useNavigation();
   const { cartItems, removeFromCart, clearCart, updateQuantity } = useContext(CartContext);
-  const { defaultAddress, addresses } = useAddress();
+  const { defaultAddress, addresses, fetchAddresses, loading: addressLoading } = useAddress();
   const [loading, setLoading] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState('card');
+  const [userData, setUserData] = useState(null);
+
+  useEffect(() => {
+    loadUserData();
+  }, []);
+
+  const loadUserData = async () => {
+    try {
+      const userProfile = await AsyncStorage.getItem('userProfile');
+      if (userProfile) {
+        setUserData(JSON.parse(userProfile));
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
 
   const handleRemoveItem = (productId: string) => {
     Alert.alert(
@@ -25,22 +41,26 @@ const Cart = () => {
     );
   };
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (cartItems.length === 0) {
       Alert.alert('Empty Cart', 'Your cart is empty. Add some products to checkout.');
       return;
     }
     
-    if (!defaultAddress) {
+    // Check if we have any address (either from address context or user profile)
+    const hasAddress = defaultAddress || (userData && userData.address);
+    
+    if (!hasAddress) {
       Alert.alert('Address Required', 'Please add a delivery address before checkout.');
       navigation.navigate('AddressManagement');
       return;
     }
     
     setLoading(true);
-    // Simulate checkout process
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      // Simulate checkout process
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
       Alert.alert(
         'Order Confirmed',
         `Your order has been placed successfully!\nPayment Method: ${getPaymentMethodText(selectedPayment)}`,
@@ -54,7 +74,11 @@ const Cart = () => {
           }
         ]
       );
-    }, 1500);
+    } catch (error) {
+      Alert.alert('Error', 'Failed to process order');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const calculateSubtotal = () => {
@@ -81,10 +105,32 @@ const Cart = () => {
     }
   };
 
+  const getDisplayAddress = () => {
+    if (defaultAddress) {
+      return defaultAddress;
+    }
+    
+    if (userData && userData.address) {
+      return {
+        name: userData.name || 'Customer',
+        phone: userData.phoneNumber || userData.altMobile || '',
+        addressLine1: userData.address,
+        city: extractCityFromAddress(userData.address),
+        state: extractStateFromAddress(userData.address),
+        pincode: extractPincodeFromAddress(userData.address) || '000000',
+        country: 'India',
+      };
+    }
+    
+    return null;
+  };
+
+  const displayAddress = getDisplayAddress();
+
   const renderCartItem = ({ item }: any) => (
     <View style={styles.cartItem}>
       <Image
-        source={{ uri: item.images && item.images.length > 0 ? getImageUrl(item.images[0]) : 'https://via.placeholder.com/100' }} // Use getImageUrl function
+        source={{ uri: item.images && item.images.length > 0 ? getImageUrl(item.images[0]) : 'https://via.placeholder.com/100' }}
         style={styles.itemImage}
       />
       <View style={styles.itemDetails}>
@@ -117,6 +163,15 @@ const Cart = () => {
       </TouchableOpacity>
     </View>
   );
+
+  if (addressLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4caf50" />
+        <Text style={styles.loadingText}>Loading cart...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -188,26 +243,30 @@ const Cart = () => {
                   onPress={() => navigation.navigate('AddressManagement')}
                   style={styles.editButton}
                 >
-                  <Text style={styles.editButtonText}>Edit</Text>
+                  <Text style={styles.editButtonText}>
+                    {displayAddress ? 'Edit' : 'Add'}
+                  </Text>
                 </TouchableOpacity>
               </View>
-              {defaultAddress ? (
+              {displayAddress ? (
                 <View style={styles.addressCard}>
                   <View style={styles.addressHeader}>
-                    <Text style={styles.addressName}>{defaultAddress.name}</Text>
-                    <View style={styles.defaultBadge}>
-                      <Text style={styles.defaultBadgeText}>Default</Text>
-                    </View>
+                    <Text style={styles.addressName}>{displayAddress.name}</Text>
+                    {defaultAddress && defaultAddress.isDefault && (
+                      <View style={styles.defaultBadge}>
+                        <Text style={styles.defaultBadgeText}>Default</Text>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.addressPhone}>{defaultAddress.phone}</Text>
-                  <Text style={styles.addressText}>{defaultAddress.addressLine1}</Text>
-                  {defaultAddress.addressLine2 && (
-                    <Text style={styles.addressText}>{defaultAddress.addressLine2}</Text>
+                  <Text style={styles.addressPhone}>{displayAddress.phone}</Text>
+                  <Text style={styles.addressText}>{displayAddress.addressLine1}</Text>
+                  {displayAddress.addressLine2 && (
+                    <Text style={styles.addressText}>{displayAddress.addressLine2}</Text>
                   )}
                   <Text style={styles.addressText}>
-                    {defaultAddress.city}, {defaultAddress.state} - {defaultAddress.pincode}
+                    {displayAddress.city}, {displayAddress.state} - {displayAddress.pincode}
                   </Text>
-                  <Text style={styles.addressText}>{defaultAddress.country}</Text>
+                  <Text style={styles.addressText}>{displayAddress.country}</Text>
                 </View>
               ) : (
                 <TouchableOpacity 
@@ -277,12 +336,14 @@ const Cart = () => {
             <TouchableOpacity 
               style={[styles.checkoutButton, loading && styles.disabledButton]} 
               onPress={handleCheckout}
-              disabled={loading}
+              disabled={loading || !displayAddress}
             >
               {loading ? (
-                <Text style={styles.checkoutButtonText}>Processing...</Text>
+                <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.checkoutButtonText}>Proceed to Checkout</Text>
+                <Text style={styles.checkoutButtonText}>
+                  {!displayAddress ? 'Add Address First' : 'Proceed to Checkout'}
+                </Text>
               )}
             </TouchableOpacity>
           </View>
@@ -292,10 +353,37 @@ const Cart = () => {
   );
 };
 
+// Helper functions
+const extractCityFromAddress = (address: string): string => {
+  const cityMatch = address.match(/(\w+)(?=\s*\d{6}|$)/);
+  return cityMatch ? cityMatch[1] : 'City';
+};
+
+const extractStateFromAddress = (address: string): string => {
+  const stateMatch = address.match(/(Maharashtra|Karnataka|Tamil Nadu|Delhi|Kerala|Gujarat)/i);
+  return stateMatch ? stateMatch[1] : 'State';
+};
+
+const extractPincodeFromAddress = (address: string): string | null => {
+  const pincodeMatch = address.match(/\b\d{6}\b/);
+  return pincodeMatch ? pincodeMatch[0] : null;
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666',
   },
   header: {
     flexDirection: 'row',

@@ -1,5 +1,3 @@
-// In /Users/webasebrandings/Downloads/new_far-main 2/src/Screen1/Shopping/AddressContext.tsx
-
 import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
 import { Alert } from 'react-native';
 import axios from 'axios';
@@ -24,130 +22,169 @@ interface Address {
 interface AddressContextType {
   addresses: Address[];
   defaultAddress: Address | null;
-  addAddress: (address: Omit<Address, 'id'>) => void;
-  updateAddress: (id: string, address: Partial<Address>) => void;
-  deleteAddress: (id: string) => void;
-  setDefaultAddress: (id: string) => void;
+  addAddress: (address: Omit<Address, 'id'>) => Promise<void>;
+  updateAddress: (id: string, address: Partial<Address>) => Promise<void>;
+  deleteAddress: (id: string) => Promise<void>;
+  setDefaultAddress: (id: string) => Promise<void>;
   fetchAddresses: () => Promise<void>;
+  fetchUserProfileForAddress: () => Promise<void>;
+  loading: boolean;
 }
 
 export const AddressContext = createContext<AddressContextType>({
   addresses: [],
   defaultAddress: null,
-  addAddress: () => {},
-  updateAddress: () => {},
-  deleteAddress: () => {},
-  setDefaultAddress: () => {},
+  addAddress: async () => {},
+  updateAddress: async () => {},
+  deleteAddress: async () => {},
+  setDefaultAddress: async () => {},
   fetchAddresses: async () => {},
+  fetchUserProfileForAddress: async () => {},
+  loading: true,
 });
 
 export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userId, setUserId] = useState<string | null>(null);
 
   const defaultAddress = addresses.find(addr => addr.isDefault) || addresses[0] || null;
 
   useEffect(() => {
-    // Get user ID from AsyncStorage
-    const getUserId = async () => {
-      try {
-        const id = await AsyncStorage.getItem('userId');
-        if (id) {
-          setUserId(id);
-          fetchAddresses(id);
-        } else {
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error('Error getting user ID:', error);
-        setLoading(false);
-      }
-    };
-
-    getUserId();
+    initializeAddressData();
   }, []);
 
-  const fetchAddresses = async (uid?: string) => {
+  const initializeAddressData = async () => {
     try {
-      setLoading(true);
-      const currentUserId = uid || userId;
-      
-      if (!currentUserId) {
-        // If no user ID, use default address
-        const defaultAddresses: Address[] = [
-          {
-            id: '1',
-            name: 'Rahul Sharma',
-            phone: '+91 9876543210',
-            addressLine1: '123 Main Street',
-            addressLine2: 'Apartment 4B',
-            city: 'Mumbai',
-            state: 'Maharashtra',
-            pincode: '400001',
-            country: 'India',
-            isDefault: true,
-            latitude: 19.0760,
-            longitude: 72.8777,
-          },
-        ];
-        setAddresses(defaultAddresses);
-        return;
-      }
-      
-      // Fetch addresses from backend
-      const response = await axios.get(`${getBackendUrl()}/api/users/addresses`, {
-        headers: {
-          'Authorization': `Bearer ${await AsyncStorage.getItem('token')}`
-        }
-      });
-      
-      if (response.data.success) {
-        setAddresses(response.data.data);
-      }
+      await Promise.all([fetchAddresses(), fetchUserProfileForAddress()]);
     } catch (error) {
-      console.error('Error fetching addresses:', error);
-      // Fallback to default address
-      const defaultAddresses: Address[] = [
-        {
-          id: '1',
-          name: 'Rahul Sharma',
-          phone: '+91 9876543210',
-          addressLine1: '123 Main Street',
-          addressLine2: 'Apartment 4B',
-          city: 'Mumbai',
-          state: 'Maharashtra',
-          pincode: '400001',
-          country: 'India',
-          isDefault: true,
-          latitude: 19.0760,
-          longitude: 72.8777,
-        },
-      ];
-      setAddresses(defaultAddresses);
-      Alert.alert('Error', 'Failed to fetch addresses. Using default address.');
+      console.error('Error initializing address data:', error);
     } finally {
       setLoading(false);
     }
   };
 
+  const fetchUserProfileForAddress = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+      const backendUrl = getBackendUrl();
+
+      if (!token) {
+        // Try to get from AsyncStorage
+        const storedProfile = await AsyncStorage.getItem('userProfile');
+        if (storedProfile) {
+          const user = JSON.parse(storedProfile);
+          await createAddressFromProfile(user);
+        }
+        return;
+      }
+
+      const response = await axios.get(`${backendUrl}/api/users/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.data.success) {
+        const user = response.data.user;
+        await createAddressFromProfile(user);
+        
+        // Store profile for future use
+        await AsyncStorage.setItem('userProfile', JSON.stringify(user));
+      }
+    } catch (error) {
+      console.error('Error fetching user profile for address:', error);
+      // Try to get from AsyncStorage as fallback
+      const storedProfile = await AsyncStorage.getItem('userProfile');
+      if (storedProfile) {
+        const user = JSON.parse(storedProfile);
+        await createAddressFromProfile(user);
+      }
+    }
+  };
+
+  const createAddressFromProfile = async (user: any) => {
+    if (user.address && addresses.length === 0) {
+      const profileAddress: Address = {
+        id: 'profile-' + Date.now(),
+        name: user.name || 'User',
+        phone: user.phoneNumber || user.altMobile || '',
+        addressLine1: user.address,
+        city: extractCityFromAddress(user.address),
+        state: extractStateFromAddress(user.address),
+        pincode: extractPincodeFromAddress(user.address) || '000000',
+        country: 'India',
+        isDefault: true,
+      };
+      
+      setAddresses([profileAddress]);
+      
+      // Also store in AsyncStorage for shopping components
+      await AsyncStorage.setItem('shippingAddress', JSON.stringify(profileAddress));
+    }
+  };
+
+  const fetchAddresses = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+      const backendUrl = getBackendUrl();
+
+      if (!token) {
+        // Use profile data from AsyncStorage as fallback
+        const storedProfile = await AsyncStorage.getItem('userProfile');
+        if (storedProfile) {
+          const profile = JSON.parse(storedProfile);
+          if (profile.address) {
+            const profileAddress: Address = {
+              id: 'profile-default',
+              name: profile.name,
+              phone: profile.phoneNumber || profile.altMobile || '',
+              addressLine1: profile.address,
+              city: extractCityFromAddress(profile.address),
+              state: extractStateFromAddress(profile.address),
+              pincode: extractPincodeFromAddress(profile.address) || '000000',
+              country: 'India',
+              isDefault: true,
+            };
+            setAddresses([profileAddress]);
+          }
+        }
+        return;
+      }
+
+      // Fetch addresses from backend
+      const response = await axios.get(`${backendUrl}/api/users/addresses`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.data.success) {
+        setAddresses(response.data.data || []);
+        
+        // If no addresses from backend, try to create from profile
+        if (response.data.data.length === 0) {
+          await fetchUserProfileForAddress();
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching addresses:', error);
+      // Fallback to profile data
+      await fetchUserProfileForAddress();
+    }
+  };
+
   const addAddress = async (newAddress: Omit<Address, 'id'>) => {
     try {
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+      const backendUrl = getBackendUrl();
+      
       const address: Address = {
         ...newAddress,
         id: Date.now().toString(),
       };
-      
-      if (userId) {
+
+      if (token) {
         // Save to backend
         const response = await axios.post(
-          `${getBackendUrl()}/api/users/addresses`,
+          `${backendUrl}/api/users/addresses`,
           address,
-          {
-            headers: {
-              'Authorization': `Bearer ${await AsyncStorage.getItem('token')}`
-            }
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         
         if (response.data.success) {
@@ -157,6 +194,13 @@ export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children })
         // Save locally
         setAddresses(prev => [...prev, address]);
       }
+      
+      // Update stored shipping address if this is default
+      if (address.isDefault) {
+        await AsyncStorage.setItem('shippingAddress', JSON.stringify(address));
+      }
+      
+      Alert.alert('Success', 'Address added successfully');
     } catch (error) {
       console.error('Error adding address:', error);
       Alert.alert('Error', 'Failed to add address');
@@ -165,16 +209,14 @@ export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const updateAddress = async (id: string, updatedAddress: Partial<Address>) => {
     try {
-      if (userId) {
-        // Update on backend
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+      
+      if (token) {
+        const backendUrl = getBackendUrl();
         const response = await axios.put(
-          `${getBackendUrl()}/api/users/addresses/${id}`,
+          `${backendUrl}/api/users/addresses/${id}`,
           updatedAddress,
-          {
-            headers: {
-              'Authorization': `Bearer ${await AsyncStorage.getItem('token')}`
-            }
-          }
+          { headers: { Authorization: `Bearer ${token}` } }
         );
         
         if (response.data.success) {
@@ -185,13 +227,23 @@ export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children })
           );
         }
       } else {
-        // Update locally
         setAddresses(prev => 
           prev.map(addr => 
             addr.id === id ? { ...addr, ...updatedAddress } : addr
           )
         );
       }
+      
+      // Update stored shipping address if this is default
+      const updated = addresses.find(addr => addr.id === id);
+      if (updated?.isDefault) {
+        await AsyncStorage.setItem('shippingAddress', JSON.stringify({
+          ...updated,
+          ...updatedAddress
+        }));
+      }
+      
+      Alert.alert('Success', 'Address updated successfully');
     } catch (error) {
       console.error('Error updating address:', error);
       Alert.alert('Error', 'Failed to update address');
@@ -205,22 +257,19 @@ export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children })
         return;
       }
       
-      if (userId) {
-        // Delete from backend
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+      
+      if (token) {
+        const backendUrl = getBackendUrl();
         await axios.delete(
-          `${getBackendUrl()}/api/users/addresses/${id}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${await AsyncStorage.getItem('token')}`
-            }
-          }
+          `${backendUrl}/api/users/addresses/${id}`,
+          { headers: { Authorization: `Bearer ${token}` } }
         );
-        
-        setAddresses(prev => prev.filter(addr => addr.id !== id));
-      } else {
-        // Delete locally
-        setAddresses(prev => prev.filter(addr => addr.id !== id));
       }
+      
+      setAddresses(prev => prev.filter(addr => addr.id !== id));
+      
+      Alert.alert('Success', 'Address deleted successfully');
     } catch (error) {
       console.error('Error deleting address:', error);
       Alert.alert('Error', 'Failed to delete address');
@@ -229,33 +278,31 @@ export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children })
 
   const setDefaultAddress = async (id: string) => {
     try {
-      if (userId) {
-        // Update on backend
+      const token = await AsyncStorage.getItem('userToken') || await AsyncStorage.getItem('authToken');
+      
+      if (token) {
+        const backendUrl = getBackendUrl();
         await axios.patch(
-          `${getBackendUrl()}/api/users/addresses/${id}/set-default`,
+          `${backendUrl}/api/users/addresses/${id}/set-default`,
           {},
-          {
-            headers: {
-              'Authorization': `Bearer ${await AsyncStorage.getItem('token')}`
-            }
-          }
-        );
-        
-        setAddresses(prev =>
-          prev.map(addr => ({
-            ...addr,
-            isDefault: addr.id === id,
-          }))
-        );
-      } else {
-        // Update locally
-        setAddresses(prev =>
-          prev.map(addr => ({
-            ...addr,
-            isDefault: addr.id === id,
-          }))
+          { headers: { Authorization: `Bearer ${token}` } }
         );
       }
+      
+      const updatedAddresses = addresses.map(addr => ({
+        ...addr,
+        isDefault: addr.id === id,
+      }));
+      
+      setAddresses(updatedAddresses);
+      
+      // Update stored shipping address
+      const newDefault = updatedAddresses.find(addr => addr.id === id);
+      if (newDefault) {
+        await AsyncStorage.setItem('shippingAddress', JSON.stringify(newDefault));
+      }
+      
+      Alert.alert('Success', 'Default address updated successfully');
     } catch (error) {
       console.error('Error setting default address:', error);
       Alert.alert('Error', 'Failed to set default address');
@@ -271,276 +318,28 @@ export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children })
       deleteAddress,
       setDefaultAddress,
       fetchAddresses,
+      fetchUserProfileForAddress,
+      loading,
     }}>
       {children}
     </AddressContext.Provider>
   );
 };
 
+// Helper functions
+const extractCityFromAddress = (address: string): string => {
+  const cityMatch = address.match(/(\w+)(?=\s*\d{6}|$)/);
+  return cityMatch ? cityMatch[1] : 'City';
+};
+
+const extractStateFromAddress = (address: string): string => {
+  const stateMatch = address.match(/(Maharashtra|Karnataka|Tamil Nadu|Delhi|Kerala|Gujarat)/i);
+  return stateMatch ? stateMatch[1] : 'State';
+};
+
+const extractPincodeFromAddress = (address: string): string | null => {
+  const pincodeMatch = address.match(/\b\d{6}\b/);
+  return pincodeMatch ? pincodeMatch[0] : null;
+};
+
 export const useAddress = () => useContext(AddressContext);
-
-
-
-// // /Users/webasebrandings/Downloads/new_far-main 2/src/Screen1/Shopping/AddressContext.tsx
-// import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
-// import { Alert } from 'react-native';
-// import axios from 'axios';
-// import { getBackendUrl } from '../../../src/util/backendConfig';
-
-// interface Address {
-//   id: string;
-//   _id?: string;
-//   name: string;
-//   phone: string;
-//   addressLine1: string;
-//   addressLine2?: string;
-//   city: string;
-//   state: string;
-//   pincode: string;
-//   country: string;
-//   isDefault: boolean;
-//   latitude?: number;
-//   longitude?: number;
-// }
-
-// interface AddressContextType {
-//   addresses: Address[];
-//   defaultAddress: Address | null;
-//   addAddress: (address: Omit<Address, 'id'>) => Promise<void>;
-//   updateAddress: (id: string, address: Partial<Address>) => Promise<void>;
-//   deleteAddress: (id: string) => Promise<void>;
-//   setDefaultAddress: (id: string) => Promise<void>;
-//   fetchAddresses: () => Promise<void>;
-//   loading: boolean;
-// }
-
-// export const AddressContext = createContext<AddressContextType>({
-//   addresses: [],
-//   defaultAddress: null,
-//   addAddress: async () => {},
-//   updateAddress: async () => {},
-//   deleteAddress: async () => {},
-//   setDefaultAddress: async () => {},
-//   fetchAddresses: async () => {},
-//   loading: false,
-// });
-
-// export const AddressProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-//   const [addresses, setAddresses] = useState<Address[]>([]);
-//   const [loading, setLoading] = useState(false);
-
-//   const defaultAddress = addresses.find(addr => addr.isDefault) || addresses[0] || null;
-
-//   const fetchAddresses = async () => {
-//     if (!user || !token) {
-//       console.log('❌ No user or token available for fetching addresses');
-//       return;
-//     }
-
-//     try {
-//       setLoading(true);
-//       const BASE_URL = getBackendUrl();
-      
-//       const response = await axios.get(`${BASE_URL}/api/users/address`, {
-//         headers: {
-//           'Authorization': `Bearer ${token}`,
-//           'Content-Type': 'application/json'
-//         }
-//       });
-
-//       if (response.data.success) {
-//         const fetchedAddresses = response.data.data.map((addr: any) => ({
-//           id: addr._id,
-//           ...addr
-//         }));
-//         setAddresses(fetchedAddresses);
-//         console.log('✅ Addresses fetched successfully:', fetchedAddresses.length);
-//       }
-//     } catch (error) {
-//       console.error('❌ Error fetching addresses:', error);
-//       // Fallback to local storage if API fails
-//       const savedAddresses = await getAddressesFromStorage();
-//       setAddresses(savedAddresses);
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const addAddress = async (newAddress: Omit<Address, 'id'>) => {
-//     try {
-//       setLoading(true);
-//       const BASE_URL = getBackendUrl();
-      
-//       const response = await axios.post(`${BASE_URL}/api/users/address`, newAddress, {
-//         headers: {
-//           'Authorization': `Bearer ${token}`,
-//           'Content-Type': 'application/json'
-//         }
-//       });
-
-//       if (response.data.success) {
-//         const savedAddress = {
-//           id: response.data.data._id,
-//           ...response.data.data
-//         };
-        
-//         setAddresses(prev => [...prev, savedAddress]);
-//         await saveAddressesToStorage([...addresses, savedAddress]);
-        
-//         Alert.alert('Success', 'Address added successfully');
-//       }
-//     } catch (error) {
-//       console.error('❌ Error adding address:', error);
-      
-//       // Fallback: Save locally
-//       const localAddress: Address = {
-//         ...newAddress,
-//         id: Date.now().toString(),
-//       };
-      
-//       setAddresses(prev => [...prev, localAddress]);
-//       await saveAddressesToStorage([...addresses, localAddress]);
-      
-//       Alert.alert('Success', 'Address added locally');
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const updateAddress = async (id: string, updatedAddress: Partial<Address>) => {
-//     try {
-//       setLoading(true);
-//       const BASE_URL = getBackendUrl();
-      
-//       const response = await axios.put(`${BASE_URL}/api/users/address/${id}`, updatedAddress, {
-//         headers: {
-//           'Authorization': `Bearer ${token}`,
-//           'Content-Type': 'application/json'
-//         }
-//       });
-
-//       if (response.data.success) {
-//         setAddresses(prev => 
-//           prev.map(addr => 
-//             addr.id === id ? { ...addr, ...updatedAddress } : addr
-//           )
-//         );
-//         await saveAddressesToStorage(addresses.map(addr => 
-//           addr.id === id ? { ...addr, ...updatedAddress } : addr
-//         ));
-        
-//         Alert.alert('Success', 'Address updated successfully');
-//       }
-//     } catch (error) {
-//       console.error('❌ Error updating address:', error);
-//       Alert.alert('Error', 'Failed to update address');
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const deleteAddress = async (id: string) => {
-//     try {
-//       if (addresses.length <= 1) {
-//         Alert.alert('Error', 'You must have at least one address');
-//         return;
-//       }
-
-//       setLoading(true);
-//       const BASE_URL = getBackendUrl();
-      
-//       const response = await axios.delete(`${BASE_URL}/api/users/address/${id}`, {
-//         headers: {
-//           'Authorization': `Bearer ${token}`,
-//           'Content-Type': 'application/json'
-//         }
-//       });
-
-//       if (response.data.success) {
-//         setAddresses(prev => prev.filter(addr => addr.id !== id));
-//         await saveAddressesToStorage(addresses.filter(addr => addr.id !== id));
-        
-//         Alert.alert('Success', 'Address deleted successfully');
-//       }
-//     } catch (error) {
-//       console.error('❌ Error deleting address:', error);
-//       Alert.alert('Error', 'Failed to delete address');
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const setDefaultAddress = async (id: string) => {
-//     try {
-//       setLoading(true);
-//       const BASE_URL = getBackendUrl();
-      
-//       const response = await axios.patch(`${BASE_URL}/api/users/address/${id}/set-default`, {}, {
-//         headers: {
-//           'Authorization': `Bearer ${token}`,
-//           'Content-Type': 'application/json'
-//         }
-//       });
-
-//       if (response.data.success) {
-//         setAddresses(prev =>
-//           prev.map(addr => ({
-//             ...addr,
-//             isDefault: addr.id === id,
-//           }))
-//         );
-//         await saveAddressesToStorage(addresses.map(addr => ({
-//           ...addr,
-//           isDefault: addr.id === id,
-//         })));
-        
-//         Alert.alert('Success', 'Default address set successfully');
-//       }
-//     } catch (error) {
-//       console.error('❌ Error setting default address:', error);
-//       Alert.alert('Error', 'Failed to set default address');
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-
-
-//   // Local storage helpers (fallback)
-//   const saveAddressesToStorage = async (addresses: Address[]) => {
-//     try {
-//       // Using AsyncStorage or similar
-//       // await AsyncStorage.setItem('userAddresses', JSON.stringify(addresses));
-//     } catch (error) {
-//       console.error('Error saving addresses to storage:', error);
-//     }
-//   };
-
-//   const getAddressesFromStorage = async (): Promise<Address[]> => {
-//     try {
-//       // const saved = await AsyncStorage.getItem('userAddresses');
-//       // return saved ? JSON.parse(saved) : [];
-//       return [];
-//     } catch (error) {
-//       console.error('Error getting addresses from storage:', error);
-//       return [];
-//     }
-//   };
-
-//   return (
-//     <AddressContext.Provider value={{
-//       addresses,
-//       defaultAddress,
-//       addAddress,
-//       updateAddress,
-//       deleteAddress,
-//       setDefaultAddress,
-//       fetchAddresses,
-//       loading,
-//     }}>
-//       {children}
-//     </AddressContext.Provider>
-//   );
-// };
-
-// export const useAddress = () => useContext(AddressContext);
